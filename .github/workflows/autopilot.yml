@@ -1,0 +1,141 @@
+name: Nation Inc Autopilot
+
+on:
+  schedule:
+    # Mon, Wed, Fri at 11:00 UTC (4:00 PM Pakistan): make the day's video, upload it as PRIVATE
+    # and send a Telegram/WhatsApp message so you can check it and publish it yourself.
+    # Keep these days in sync with "post_days" in config.json (there 0 = Monday).
+    - cron: "0 11 * * 1,3,5"
+    # Competitor research + next 30-day plan on the 1st and 16th of every month, 8:00 AM Pakistan.
+    - cron: "0 3 1,16 * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "research = competitors + 30-day plan · run = today's video · plan = fill calendar · test = render one video without uploading"
+        type: choice
+        options: [research, run, plan, test]
+        default: test
+      topic:
+        description: "Topic for test mode (optional)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+env:
+  MODE: ${{ github.event.inputs.mode || (github.event.schedule == '0 3 1,16 * *' && 'research') || 'run' }}
+
+concurrency:
+  group: nation-autopilot
+  cancel-in-progress: false
+
+jobs:
+  autopilot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        if: env.MODE == 'run' || env.MODE == 'test'
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: remotion/package-lock.json
+
+      - name: Install ffmpeg + browser libraries
+        if: env.MODE == 'run' || env.MODE == 'test'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fontconfig libnss3 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 \
+            libgbm1 libasound2t64 libxrandr2 libxkbcommon0 libxfixes3 libxcomposite1 libxdamage1 \
+            libpango-1.0-0 libcairo2 libcups2
+
+      - name: Install Python packages
+        run: pip install -r requirements.txt
+
+      - name: Install video editor (Remotion)
+        if: env.MODE == 'run' || env.MODE == 'test'
+        working-directory: remotion
+        run: |
+          npm ci --no-audit --no-fund
+          npx remotion browser ensure
+
+      - name: Cache speech-recognition model
+        if: env.MODE == 'run' || env.MODE == 'test'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: whisper-base-en-v1
+
+      - name: Run autopilot
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          WHATSAPP_PHONE: ${{ secrets.WHATSAPP_PHONE }}
+          WHATSAPP_APIKEY: ${{ secrets.WHATSAPP_APIKEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          CHANNEL_NAME: ${{ vars.CHANNEL_NAME }}
+          TOPIC: ${{ github.event.inputs.topic }}
+        run: python -m autopilot.main "$MODE" --topic "$TOPIC"
+
+      - name: Save calendar + research to the repo
+        if: always()
+        run: |
+          if [ -n "$(git status --porcelain state)" ]; then
+            git config user.name "tube-autopilot"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add state
+            git commit -m "Update calendar / research ($MODE)"
+            git pull --rebase --autostash || true
+            git push
+          fi
+
+      # Videos go to the repo's RELEASES page (right side of the repo → "Releases").
+      # Releases don't use the 500 MB Actions storage and don't expire after 7 days.
+      - name: Publish the video on the Releases page
+        id: release
+        if: always() && hashFiles('out/*.mp4') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="video-${{ github.run_number }}"
+          TITLE=$(python3 -c "import json;print(json.load(open('out/UPLOAD-KIT.json'))['titles'][0])" 2>/dev/null || ls out/*.mp4 | head -1 | xargs -n1 basename)
+          NOTES=out/UPLOAD-KIT.txt
+          [ -f "$NOTES" ] || { echo "Video ready." > /tmp/notes.txt; NOTES=/tmp/notes.txt; }
+          gh release create "$TAG" out/* --title "$(date +%Y-%m-%d) · $TITLE" --notes-file "$NOTES" --target "${{ github.sha }}"
+          echo "Video published: ${{ github.server_url }}/${{ github.repository }}/releases/tag/$TAG"
+
+      - name: Delete video releases older than 5 days
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CUTOFF=$(date -u -d '5 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          gh release list --limit 200 --json tagName,createdAt \
+            --jq ".[] | select(.tagName | startswith(\"video-\")) | select(.createdAt < \"$CUTOFF\") | .tagName" |
+          while read -r t; do [ -n "$t" ] && gh release delete "$t" --yes --cleanup-tag || true; done
+
+      # Backup only if the release step failed (small, 2 days).
+      - name: Backup download if the release failed
+        if: always() && steps.release.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-${{ github.run_number }}
+          path: out/
+          retention-days: 2
+          if-no-files-found: ignore

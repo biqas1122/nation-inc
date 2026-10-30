@@ -98,7 +98,7 @@ def worldbank(iso3):
 
 
 def wikidata(iso3):
-    q = f"""SELECT ?c ?hosLabel ?hogLabel ?inception ?capitalLabel ?currencyLabel ?flag WHERE {{
+    q = f"""SELECT ?c ?hosLabel ?hogLabel ?inception ?capitalLabel ?currencyLabel ?flag ?map WHERE {{
   ?c wdt:P298 "{iso3}".
   OPTIONAL {{ ?c p:P35 ?s. ?s ps:P35 ?hos. FILTER NOT EXISTS {{ ?s pq:P582 ?e }} }}
   OPTIONAL {{ ?c p:P6 ?s2. ?s2 ps:P6 ?hog. FILTER NOT EXISTS {{ ?s2 pq:P582 ?e2 }} }}
@@ -106,6 +106,7 @@ def wikidata(iso3):
   OPTIONAL {{ ?c wdt:P36 ?capital }}
   OPTIONAL {{ ?c wdt:P38 ?currency }}
   OPTIONAL {{ ?c wdt:P41 ?flag }}
+  OPTIONAL {{ ?c wdt:P242 ?map }}
   SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }}
 }} LIMIT 20"""
     info = {}
@@ -115,7 +116,7 @@ def wikidata(iso3):
         rows = r.json()["results"]["bindings"]
         get = lambda row, k: row.get(k, {}).get("value", "")  # noqa: E731
         for row in rows:
-            for k in ("hosLabel", "hogLabel", "capitalLabel", "currencyLabel", "flag"):
+            for k in ("hosLabel", "hogLabel", "capitalLabel", "currencyLabel", "flag", "map"):
                 v = get(row, k)
                 if v and not re.fullmatch(r"Q\d+", v) and k not in info:
                     info[k] = v
@@ -127,7 +128,7 @@ def wikidata(iso3):
                     info["founded"] = min(info.get("founded", 99999), y)
     except Exception as e:
         log(f"Wikidata: {e}")
-    log(f"Wikidata: {', '.join(f'{k}={v}' for k, v in info.items() if k != 'flag')}")
+    log(f"Wikidata: {', '.join(f'{k}={v}' for k, v in info.items() if k not in ('flag', 'map'))}")
     return info
 
 
@@ -215,6 +216,11 @@ def prepare(cfg, title, work: Path):
         url += ("&" if "?" in url else "?") + "width=800"
         flag = _download(url, work / "flag.png")
     card = {"name": f"{who['place']} Inc.", "rows": rows[:7], "flag": str(flag) if flag else None}
+    locator = None
+    if wd.get("map"):
+        url = wd["map"].replace("http://", "https://")
+        url += ("&" if "?" in url else "?") + "width=1600"
+        locator = _download(url, work / "map.png")
 
     # thumbnail background: a real photo of the capital/place, else the flag
     thumb_bg = None
@@ -228,4 +234,5 @@ def prepare(cfg, title, work: Path):
     if not thumb_bg and flag:
         thumb_bg = str(flag)
     log(f"data sheet: {len(lines)} facts, {len(series)} chart series, card rows: {len(card['rows'])}")
-    return {"sheet": sheet, "metrics": list(series), "card": card, "series": series, "thumb_bg": thumb_bg, "who": who}
+    return {"sheet": sheet, "metrics": list(series), "card": card, "series": series, "thumb_bg": thumb_bg, "who": who,
+            "map": str(locator) if locator else None}

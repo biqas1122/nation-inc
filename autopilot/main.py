@@ -92,12 +92,26 @@ def produce(cfg, title, angle=""):
         dur = max(1.0, sc["end"] - sc["start"])
         want = max(1, min(12, -(-int(dur * 10) // int(shot_len * 10))))
         queries = sc.get("visual_queries") or [sc["visual_query"]]
+        real = []
+        if facts:
+            # Nation Inc.: real photos of the actual country first (Wikimedia Commons: cities, landmarks,
+            # ports, factories, leaders), stock video only fills the gaps
+            for q in queries + ([sc["photo_subject"]] if sc.get("photo_subject") else []):
+                if len(real) >= max(1, want // 2 + 1):
+                    break
+                ph = commons.search(q, used)
+                if ph:
+                    try:
+                        stock.download(ph, WORK / f"real_{i:03d}_{len(real)}")
+                        real.append(ph)
+                    except Exception as e:
+                        log(f"scene {i + 1} photo download failed: {e}")
         try:
-            shots = stock.find_shots(cfg, queries, want, used)
+            shots = stock.find_shots(cfg, queries, max(0, want - len(real)), used) if want > len(real) else []
         except Exception as e:
             log(f"scene {i + 1} footage search failed: {e}")
             shots = []
-        ok = []
+        ok = list(real)
         for j, a in enumerate(shots):
             try:
                 stock.download(a, WORK / f"asset_{i:03d}_{j}")
@@ -118,6 +132,10 @@ def produce(cfg, title, angle=""):
         sc["shots"] = ok
         sc["asset"] = ok[0] if ok else None
         n_assets += len(ok)
+    if facts and facts.get("map") and len(scenes) > 1:
+        scenes[1].setdefault("shots", []).insert(0, {"type": "photo", "path": facts["map"], "url": "map",
+                                                     "credit": "Locator map: Wikimedia Commons",
+                                                     "credit_on_screen": "Map: Wikimedia Commons"})
     for i, sc in enumerate(scenes):  # never leave a scene empty
         if not sc.get("shots"):
             prev = next((scenes[j]["shots"] for j in range(i - 1, -1, -1) if scenes[j].get("shots")), None) \

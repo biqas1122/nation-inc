@@ -76,7 +76,7 @@ def produce(cfg, title, angle=""):
     script = scriptgen.generate_script(cfg, title, angle, facts=facts["sheet"] if facts else "",
                                        metrics=facts["metrics"] if facts else None)
     if facts:
-        script["card"], script["series"] = facts["card"], facts["series"]
+        script["card"], script["series"], script["maps"] = facts["card"], facts["series"], facts.get("maps")
     scenes = script["scenes"]
     log(f"{len(scenes)} scenes, {sum(scriptgen.words(s['narration']) for s in scenes)} words")
 
@@ -132,7 +132,7 @@ def produce(cfg, title, angle=""):
         sc["shots"] = ok
         sc["asset"] = ok[0] if ok else None
         n_assets += len(ok)
-    if facts and facts.get("map") and len(scenes) > 1:
+    if facts and facts.get("map") and not facts.get("maps") and len(scenes) > 1:
         scenes[1].setdefault("shots", []).insert(0, {"type": "photo", "path": facts["map"], "url": "map",
                                                      "credit": "Locator map: Wikimedia Commons",
                                                      "credit_on_screen": "Map: Wikimedia Commons"})

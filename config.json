@@ -44,7 +44,7 @@
   "elevenlabs_voice_id": "pNInz6obpgDQGcFmaJgB",
   "elevenlabs_model": "eleven_multilingual_v2",
   "whisper_model": "base.en",
-  "stock_provider": "pixabay",
+  "stock_provider": "both",
   "shot_seconds": 4,
   "music_volume": 0.14,
   "music_duck_volume": 0.045,

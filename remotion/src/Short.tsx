@@ -4,6 +4,7 @@ import {
   BODY, ChartGraphic, CompareGraphic, Flash, GOLD, HEAD, Mascot, OUTLINE, OVERLAP, ShotView, StatGraphic, TimelineGraphic, clamp,
 } from './Main';
 import type {CaptionPage, ShortProps} from './types';
+import {MapScene} from './MapScene';
 
 /* Vertical 1080x1920 clip for YouTube Shorts / TikTok / Reels / Facebook. */
 
@@ -95,7 +96,12 @@ export const Short: React.FC<ShortProps> = (props) => {
         const frames = Math.max(1, F(g.e) - F(g.s));
         return (
           <Sequence key={`g${i}`} from={F(g.s)} durationInFrames={frames}>
-            <AbsoluteFill style={{transform: 'scale(0.68)'}}>
+            {g.type === 'map' ? (
+              <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center'}}>
+                <div style={{width: 1920, height: 1080, transform: 'scale(0.5625)', flexShrink: 0}}><MapScene g={g} frames={frames} /></div>
+              </AbsoluteFill>
+            ) : null}
+            <AbsoluteFill style={{transform: 'scale(0.68)', display: g.type === 'map' ? 'none' : undefined}}>
               {g.type === 'stat' ? <StatGraphic g={g} frames={frames} /> : null}
               {g.type === 'timeline' ? <TimelineGraphic g={g} frames={frames} /> : null}
               {g.type === 'compare' ? <CompareGraphic g={g} frames={frames} /> : null}

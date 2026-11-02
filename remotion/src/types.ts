@@ -20,7 +20,8 @@ export type Graphic =
   | {type: 'timeline'; s: number; e: number; year: string; label: string; history: {year: string; label: string}[]}
   | {type: 'compare'; s: number; e: number; title: string; unit: string;
       a: {label: string; value: number}; b: {label: string; value: number}}
-  | {type: 'chart'; s: number; e: number; title: string; prefix: string; unit: string; points: [number, number][]};
+  | {type: 'chart'; s: number; e: number; title: string; prefix: string; unit: string; points: [number, number][]}
+  | import('./MapScene').MapGraphic;
 
 export type CompanyCard = {name: string; rows: [string, string][]; s: number; e: number; flag: string | null};
 

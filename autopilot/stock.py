@@ -107,8 +107,33 @@ def _pexels_photos(cfg, q):
     return _cache[key]
 
 
+def _mix(a, b):
+    """Interleaves results of two providers (Pexels + Pixabay) so both get used."""
+    def f(cfg, q):
+        try:
+            xs = a(cfg, q)
+        except Exception as e:
+            log(f"{a.__name__} failed: {e}")
+            xs = []
+        try:
+            ys = b(cfg, q)
+        except Exception as e:
+            log(f"{b.__name__} failed: {e}")
+            ys = []
+        out = []
+        for i in range(max(len(xs), len(ys))):
+            out += [x[i] for x in (xs, ys) if i < len(x)]
+        return out
+    f.__name__ = f"mix_{a.__name__}"
+    return f
+
+
 def _provider(cfg):
-    if cfg.get("stock_provider") == "pexels":
+    has_px, has_pb = bool(cfg.get("pexels_key")), bool(cfg.get("pixabay_key"))
+    mode = cfg.get("stock_provider", "pixabay")
+    if mode == "both" and has_px and has_pb:
+        return _mix(_pexels_videos, _pixabay_videos), _mix(_pexels_photos, _pixabay_photos)
+    if (mode == "pexels" or (mode == "both" and has_px)) and has_px:
         return _pexels_videos, _pexels_photos
     return _pixabay_videos, _pixabay_photos
 

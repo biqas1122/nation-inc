@@ -13,6 +13,7 @@ import {
   useVideoConfig,
 } from 'remotion';
 import {loadFont} from '@remotion/fonts';
+import {MapScene} from './MapScene';
 import type {Appearance, CaptionPage, Chapter, CharacterProps, CompanyCard, Graphic, Headline, Shot, VideoProps} from './types';
 
 export const GOLD = '#D4AF37';
@@ -512,6 +513,7 @@ export const Main: React.FC<VideoProps> = (props) => {
             {g.type === 'timeline' ? <TimelineGraphic g={g} frames={frames} /> : null}
             {g.type === 'compare' ? <CompareGraphic g={g} frames={frames} /> : null}
             {g.type === 'chart' ? <ChartGraphic g={g} frames={frames} /> : null}
+            {g.type === 'map' ? <MapScene g={g} frames={frames} /> : null}
           </Sequence>
         );
       })}

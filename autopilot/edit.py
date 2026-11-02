@@ -178,6 +178,25 @@ def build_props(cfg, scenes, script, narration_wav, total):
                 "flag": _place(c["flag"], "flag.png") if c.get("flag") else None}
         sfx.append({"src": hit, "at": cs, "volume": 0.4})
 
+    # animated maps (Nation Inc.): globe zoom in the intro, capital pin after the company card
+    maps = script.get("maps")
+    reserved = [(card["s"], card["e"])] if card else []
+    if maps and maps.get("focus"):
+        base = {"type": "map", "focus": maps["focus"], "label": maps.get("label", "")}
+        s0e = scenes[0]["end"]
+        if s0e - 1.2 >= 3.6:
+            g0 = {**base, "kind": "zoom", "s": 1.2, "e": round(min(s0e - 0.1, 6.2), 3)}
+            graphics.append(g0)
+            reserved.append((g0["s"], g0["e"]))
+            sfx.append({"src": whoosh, "at": 1.0, "volume": 0.35})
+        if maps.get("pin") and card:
+            g1 = {**base, "kind": "pin", "pin": maps["pin"], "s": round(card["e"] + 0.15, 3), "e": round(card["e"] + 4.6, 3)}
+            graphics.append(g1)
+            reserved.append((g1["s"], g1["e"]))
+
+    def blocked(a, b):
+        return any(a < re_ and b > rs for rs, re_ in reserved)
+
     for i, sc in enumerate(scenes):
         words = _scene_words(sc)
         all_words += words
@@ -232,12 +251,26 @@ def build_props(cfg, scenes, script, narration_wav, total):
         # graphic (timed to when its number/year is spoken)
         g = sc.get("graphic")
         g_start = None
+        if isinstance(g, dict) and g.get("type") == "map" and maps and maps.get("focus"):
+            kind = "rivals" if g.get("kind") == "rivals" else "routes"
+            tg = maps.get("rivals" if kind == "rivals" else "customers") or []
+            gs = max(card_until + 0.2, s0 + 0.6)
+            ge = min(gs + 5.5, s1 - 0.1)
+            if tg and ge - gs >= 3.0 and not blocked(gs, ge) and not any(x.get("kind") == kind for x in graphics):
+                graphics.append({"type": "map", "kind": kind, "focus": maps["focus"], "label": maps.get("label", ""),
+                                 "title": "Biggest customers" if kind == "routes" else "The competition",
+                                 "targets": tg, "s": round(gs, 3), "e": round(ge, 3)})
+                reserved.append((gs, ge))
+                g_start = gs
+                sfx.append({"src": whoosh, "at": max(0, gs - 0.2), "volume": 0.3})
+            g = None
         if isinstance(g, dict) and g.get("type") == "chart":
             ser = (script.get("series") or {}).get(str(g.get("metric") or ""))
             gs = max(card_until + 0.2, s0 + 0.8)
             ge = min(gs + 5.5, s1 - 0.1)
-            if ser and ge - gs >= 2.5 and not (card and gs < card["e"] and ge > card["s"]):
+            if ser and ge - gs >= 2.5 and not blocked(gs, ge):
                 graphics.append({"type": "chart", "s": round(gs, 3), "e": round(ge, 3), **ser})
+                reserved.append((gs, ge))
                 g_start = gs
                 sfx.append({"src": hit, "at": gs, "volume": 0.3})
             g = None
@@ -246,7 +279,7 @@ def build_props(cfg, scenes, script, narration_wav, total):
             hit_w = next((w for w in words if key and key in re.sub(r"[^0-9]", "", w["w"])), None)
             gs = max(card_until + 0.2, (hit_w["s"] - 0.2) if hit_w else s0 + 1.0)
             ge = min(gs + 4.2, s1 - 0.1)
-            if ge - gs >= 2.0 and not (card and gs < card["e"] and ge > card["s"]):
+            if ge - gs >= 2.0 and not blocked(gs, ge):
                 item = {"type": g["type"], "s": round(gs, 3), "e": round(ge, 3)}
                 try:
                     if g["type"] == "stat":
@@ -259,6 +292,7 @@ def build_props(cfg, scenes, script, narration_wav, total):
                                     a={"label": str(g["a"]["label"])[:14], "value": float(g["a"]["value"])},
                                     b={"label": str(g["b"]["label"])[:14], "value": float(g["b"]["value"])})
                     graphics.append(item)
+                    reserved.append((gs, ge))
                     g_start = gs
                     punches.append(gs)
                     sfx.append({"src": hit, "at": gs, "volume": 0.35})

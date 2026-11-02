@@ -87,6 +87,9 @@ CHART_RULE = """
 - With a DATA SHEET you may also use a line-chart graphic that the system draws from the verified data:
     {"type":"chart","metric":"gdp"}   (metric = one of: METRICS) — use it 2-3 times per video where the trend matters,
   and say the trend in the narration.
+- Animated world maps are drawn automatically from verified data. Use each at most once per video:
+    {"type":"map","kind":"routes"}  when the narration talks about its biggest customers / where its exports go
+    {"type":"map","kind":"rivals"}  when the narration talks about its competitors
 - For this channel "visual_queries" MUST name the actual place: country/city + what to show, e.g.
   ["Tokyo skyline", "Japan car factory", "Osaka port"]; "photo_subject" = a real landmark, port, factory,
   building or the leader named in the data sheet (searchable on Wikimedia Commons)."""

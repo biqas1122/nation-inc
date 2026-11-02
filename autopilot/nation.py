@@ -98,12 +98,12 @@ def worldbank(iso3):
 
 
 def wikidata(iso3):
-    q = f"""SELECT ?c ?hosLabel ?hogLabel ?inception ?capitalLabel ?currencyLabel ?flag ?map WHERE {{
+    q = f"""SELECT ?c ?hosLabel ?hogLabel ?inception ?capitalLabel ?currencyLabel ?flag ?map ?coord WHERE {{
   ?c wdt:P298 "{iso3}".
   OPTIONAL {{ ?c p:P35 ?s. ?s ps:P35 ?hos. FILTER NOT EXISTS {{ ?s pq:P582 ?e }} }}
   OPTIONAL {{ ?c p:P6 ?s2. ?s2 ps:P6 ?hog. FILTER NOT EXISTS {{ ?s2 pq:P582 ?e2 }} }}
   OPTIONAL {{ ?c wdt:P571 ?inception }}
-  OPTIONAL {{ ?c wdt:P36 ?capital }}
+  OPTIONAL {{ ?c wdt:P36 ?capital. OPTIONAL {{ ?capital wdt:P625 ?coord }} }}
   OPTIONAL {{ ?c wdt:P38 ?currency }}
   OPTIONAL {{ ?c wdt:P41 ?flag }}
   OPTIONAL {{ ?c wdt:P242 ?map }}
@@ -116,7 +116,7 @@ def wikidata(iso3):
         rows = r.json()["results"]["bindings"]
         get = lambda row, k: row.get(k, {}).get("value", "")  # noqa: E731
         for row in rows:
-            for k in ("hosLabel", "hogLabel", "capitalLabel", "currencyLabel", "flag", "map"):
+            for k in ("hosLabel", "hogLabel", "capitalLabel", "currencyLabel", "flag", "map", "coord"):
                 v = get(row, k)
                 if v and not re.fullmatch(r"Q\d+", v) and k not in info:
                     info[k] = v
@@ -128,8 +128,41 @@ def wikidata(iso3):
                     info["founded"] = min(info.get("founded", 99999), y)
     except Exception as e:
         log(f"Wikidata: {e}")
-    log(f"Wikidata: {', '.join(f'{k}={v}' for k, v in info.items() if k not in ('flag', 'map'))}")
+    log(f"Wikidata: {', '.join(f'{k}={v}' for k, v in info.items() if k not in ('flag', 'map', 'coord'))}")
     return info
+
+
+def numeric(iso3):
+    """ISO alpha-3 → ISO numeric string as used by the world map ('JPN' → '392')."""
+    try:
+        import pycountry
+        c = pycountry.countries.get(alpha_3=iso3.upper())
+        return str(int(c.numeric)) if c else ""
+    except Exception:
+        return ""
+
+
+def neighbours(cfg, who):
+    """Biggest export customers and main rivals (well-known, for the animated maps)."""
+    try:
+        r = gemini.generate_json(cfg["gemini_key"], f"""For the economy of {who['country']} ({who['iso3']}), list:
+- "customers": its 5 biggest export destination countries (well-established, recent years)
+- "rivals": 3 countries it competes with most in its main industries/exports
+Use short display names (e.g. "USA", "China", "UK", "South Korea", "UAE").
+Return JSON: {{"customers":[{{"iso3":"","name":""}}],"rivals":[{{"iso3":"","name":""}}]}}""", temperature=0.2)
+    except Exception as e:
+        log(f"partner lookup failed: {e}")
+        return [], []
+    def conv(xs):
+        out = []
+        for x in xs or []:
+            if not isinstance(x, dict):
+                continue
+            n = numeric(str(x.get("iso3") or ""))
+            if n and n != numeric(who["iso3"]) and all(o["id"] != n for o in out):
+                out.append({"id": n, "label": str(x.get("name") or x.get("iso3"))[:16]})
+        return out
+    return conv(r.get("customers"))[:6], conv(r.get("rivals"))[:4]
 
 
 def _download(url, dest: Path):
@@ -233,6 +266,21 @@ def prepare(cfg, title, work: Path):
         log(f"thumbnail photo failed: {e}")
     if not thumb_bg and flag:
         thumb_bg = str(flag)
-    log(f"data sheet: {len(lines)} facts, {len(series)} chart series, card rows: {len(card['rows'])}")
+    maps = None
+    num = numeric(who["iso3"]) if who["iso3"] else ""
+    if num:
+        pin = None
+        m = re.search(r"Point\(([-\d.]+) ([-\d.]+)\)", wd.get("coord", ""))
+        if m:
+            pin = {"lon": float(m.group(1)), "lat": float(m.group(2)),
+                   "label": f"HQ: {wd.get('capitalLabel', '').upper()}"}
+        customers, rivals = neighbours(cfg, who)
+        if customers:
+            lines.append("Biggest export customers (for the map): " + ", ".join(c["label"] for c in customers))
+        if rivals:
+            lines.append("Main rivals (for the map): " + ", ".join(c["label"] for c in rivals))
+        maps = {"focus": num, "label": f"{who['place']} Inc.", "pin": pin, "customers": customers, "rivals": rivals}
+        sheet = "\n".join(f"- {x}" for x in lines)
+    log(f"data sheet: {len(lines)} facts, {len(series)} chart series, card rows: {len(card['rows'])}, maps: {bool(maps)}")
     return {"sheet": sheet, "metrics": list(series), "card": card, "series": series, "thumb_bg": thumb_bg, "who": who,
-            "map": str(locator) if locator else None}
+            "map": str(locator) if locator else None, "maps": maps}
